@@ -1,14 +1,18 @@
-
+# -----------------------------------------------------------------------------------------------------------------
 # Import libraries
+# -----------------------------------------------------------------------------------------------------------------
+
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction.text import TfidfTransformer
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.ensemble import VotingClassifier
 from textblob import Word
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
 from sklearn.ensemble import RandomForestClassifier
 import os
+from scipy import sparse
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
@@ -24,10 +28,16 @@ import pickle
 from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import RandomOverSampler 
 
+# -----------------------------------------------------------------------------------------------------------------
 # Working directory
+# -----------------------------------------------------------------------------------------------------------------
+
 os.chdir('C:\\Users\\Parikshit_verma\\Documents\\hackathon')
 
+# -----------------------------------------------------------------------------------------------------------------
 # Fucntions
+# -----------------------------------------------------------------------------------------------------------------
+
 def pre_process(train):
     
     # Data Pre-processing
@@ -91,7 +101,12 @@ def tfidf_test(test):
     test = transformer.fit_transform(vocab.fit_transform(test))
     
     return test
- 
+
+def test(test,test_Rating,clf):
+    test = clf.predict(test)
+    score = accuracy_score(test_Rating,test)
+    return score
+    
 def predictions(test1,testB,clf):
     test1 = pre_process(test1)
     testB = pre_process(testB)
@@ -110,42 +125,84 @@ def predictions(test1,testB,clf):
     
     return test1,testB    
 
+# -----------------------------------------------------------------------------------------------------------------
 # Read dataset
+# -----------------------------------------------------------------------------------------------------------------
+    
 train = pd.read_csv('train.csv',nrows = 100000)
 test1 = pd.read_csv('test1_generic_reviews.csv')
 testB = pd.read_csv('testB_dell_reviews.csv')    
 
-# Train dataset preprocessing and vectorization
+# -----------------------------------------------------------------------------------------------------------------
+# Train & Test data initialization
+# -----------------------------------------------------------------------------------------------------------------
+
 train = pre_process(train)
 Review, Rating = stratified_sampling(train,23)
 Review = tfidf(Review)
 
-# Model building
+# Train-Test split
 train_Review, test_Review, train_Rating, test_Rating = train_test_split(Review, Rating, test_size=0.30, random_state=42)
+sparse.save_npz("train_Review.npz", train_Review)
+train_Rating.to_pickle("./train_Rating.pkl")
+
+# -----------------------------------------------------------------------------------------------------------------
+# Load Pre-processed data
+# -----------------------------------------------------------------------------------------------------------------
+
+train_Rating = pd.read_pickle("./train_Rating.pkl")
+train_Review = sparse.load_npz("train_Review.npz")
+
+# -----------------------------------------------------------------------------------------------------------------
+# Parameter grid search
+# -----------------------------------------------------------------------------------------------------------------
+
+
+# logistics Regression
+parameter_candidates = [{'C': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]}]
+lclf = GridSearchCV(estimator=LogisticRegression(penalty = 'l2', solver='lbfgs', multi_class='multinomial'), 
+                    param_grid=parameter_candidates, n_jobs=-1)
+lclf = lclf.fit(train_Review, train_Rating)
+print('Best score:', lclf.best_score_) 
+print('Best alpha:',lclf.best_estimator_.C)  
+
+# -----------------------------------------------------------------------------------------------------------------
+# Models
+# -----------------------------------------------------------------------------------------------------------------
 
 # Naive Bayes
-nbclf = MultinomialNB().fit(train_Review, train_Rating)
+nbclf = MultinomialNB(alpha = 0.2).fit(train_Review, train_Rating)
 
 # logistics Regresion
-lclf = LogisticRegression().fit(train_Review, train_Rating)
+lclf = LogisticRegression(alpha = 0.8).fit(train_Review, train_Rating)
 
 # Random forest
-rf = RandomForestClassifier()
-params_rf = {'n_estimators': [50, 100, 200]}
-rf_gs = GridSearchCV(rf, params_rf, cv=5)
-rf_fit = rf_gs.fit(train_Review,train_Rating)
+rfclf = RandomForestClassifier(n_estimators = 100, max_depth=50, random_state=0)
+rf_fit = rfclf.fit(train_Review, train_Rating)
+
+# LDA
+ldaclf = LinearDiscriminantAnalysis()
+lda_fit = ldaclf.fit(train_Review.toarray(), train_Rating) 
 
 # XgBoost
 xg = xgb.XGBClassifier()
 xg_fit = xg.fit(train_Review,train_Rating) 
 
 #create a dictionary of our models
-estimators=[('log', lclf), ('rf', rf_fit), ('nb',nbclf)]
+estimators=[('log', lclf), ('rf', rf_fit), ('nb',nbclf),('lda',lda_fit)]
 ensemble = VotingClassifier(estimators, voting='hard') 
 ensemble = ensemble.fit(train_Review,train_Rating)
 
+# -----------------------------------------------------------------------------------------------------------------
 # Test predictions
+# -----------------------------------------------------------------------------------------------------------------
+
+# Test set predictions and accuracy
+
+
+# Unseen data predictions
 test1,testB = predictions(test1,testB,ensemble)
+
 
 
 
